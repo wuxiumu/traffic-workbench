@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { isAuthenticated } from "@/lib/auth";
-import { redis } from "@/lib/redis";
+import { clearSiteRedis } from "@/lib/clear";
 
 export const dynamic = "force-dynamic";
 
@@ -50,23 +50,15 @@ export async function DELETE(req: NextRequest) {
     | { id: number }
     | undefined;
   if (!row) return NextResponse.json({ error: "站点不存在" }, { status: 404 });
+  // 清统计四表
   const tx = db.transaction(() => {
     for (const t of ["events", "daily_stats", "page_daily", "referrer_daily"]) {
       db.prepare(`DELETE FROM ${t} WHERE site_id = ?`).run(row.id);
     }
-    db.prepare("DELETE FROM sites WHERE id = ?").run(row.id);
   });
   tx();
-  // 同步清理 Redis 侧：站点缓存 + 全部窗口键
-  await redis.del(`tw:site:${key}`, `tw:feed:${key}`);
-  const suffixes = ["stats", "vis", "ips", "pages", "refs", "events"];
-  for (const s of suffixes) {
-    let cursor = "0";
-    do {
-      const [next, keys] = await redis.scan(cursor, "MATCH", `tw:${s}:${key}:*`, "COUNT", 200);
-      cursor = next;
-      if (keys.length) await redis.del(...keys);
-    } while (cursor !== "0");
-  }
+  db.prepare("DELETE FROM sites WHERE id = ?").run(row.id);
+  // 清 Redis 侧：站点缓存 + 全部窗口键 + feed
+  await clearSiteRedis(key);
   return NextResponse.json({ ok: 1 });
 }

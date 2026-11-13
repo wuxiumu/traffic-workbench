@@ -20,6 +20,7 @@
 4. **Redis 键统一走 `K` / `K_U` 构造器**（`lib/redis.ts`）：新增键类型必须加进对应构造器并设置 `WINDOW_TTL`，flush 的 SCAN 模式与站点删除清理都依赖这套命名。**万能统计（`tw:u:*`）与 keyed 站点（`tw:*`）严格隔离**：keyed 用 `site_key`，万能用域名且 `u_sites` 自动注册；两边大盘/归档互不混算（flush 分别处理 `tw:events:*` 与 `tw:u:events:*`）。
 5. **统计口径**：PV=事件数；UV=按 `visitor_id` 日去重；IP=按 `ip_hash` 日去重（SHA-256+盐，库中无明文）。来源名归一化：Redis 侧 `direct`、SQLite 侧 `''`，展示与聚合前必须过 `normRef()`。万能统计的 3 秒停留判定在客户端 `public/u.js`（定时器 + pagehide 兜底），服务端不做时长校验。
 6. **默认大盘（`/`、`/site/{key}`）与万能大盘（`/universal`）互不影响**：给 keyed 站点加功能不要动 `lib/universal.ts`，反之亦然。
+7. **导入必须重建窗口日 Redis 键**：查询层窗口日只读 Redis，`importSites` 对 `date >= windowStart` 的导入日期要清旧键并从导入事件重建（stats/vis/ips/pages/refs/events 全套 + TTL），否则窗口日查询显示为 0。
 
 ## 3. 常用命令
 
@@ -48,6 +49,9 @@ npm run monitor           # 健康监控单次检查（WEBHOOK_URL 可选）
 | `lib/flush.ts` | 归档：SCAN→入库→DEL→重算聚合；防并发锁 | `flushOnce` `recomputeDay` |
 | `lib/scheduler.ts` | cron 注册（探活按需拉起，幂等单例） | `ensureScheduler` |
 | `lib/stats.ts` | 混合查询 + 跨站总览 | `summary` `dailySeries` `details` `overview` `feed` |
+| `lib/clear.ts` | 站点数据清空（删除/重置共用） | `clearSiteData` |
+| `lib/transfer.ts` | 多选导出/导入（events 归档∪窗口合并；按日期段替换幂等） | `exportSites` `importSites` |
+| `lib/demo.ts` | 指定站点灌 30 天演示数据（先清后灌，与 seed 同构） | `generateDemoData` |
 | `lib/db.ts` | SQLite schema、`dateStr()`（APP_TZ 日期） | — |
 | `lib/track.ts` | UA/Referer 解析、IP 提取与哈希 | `normalizeReferrer` `hashIP` |
 | `lib/auth.ts` | 密码登录、HMAC cookie session | `isAuthenticated` |
