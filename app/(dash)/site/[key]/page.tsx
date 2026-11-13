@@ -1,24 +1,20 @@
-import { redirect, notFound } from "next/navigation";
-import { isAuthenticated } from "@/lib/auth";
+import { notFound } from "next/navigation";
 import { listSites } from "@/lib/stats";
 import Dashboard from "@/components/Dashboard";
-import TopBar from "@/components/TopBar";
 
 export const dynamic = "force-dynamic";
 
-/** 单站点详情页：/site/{siteKey} */
-export default async function SiteDetail({
+/** 单站点详情页：/site/{siteKey}（页头与鉴权由 (dash) layout 统一提供） */
+export default function SiteDetail({
   params,
 }: {
   params: { key: string };
 }) {
-  if (!isAuthenticated()) redirect("/login");
   const site = listSites().find((s) => s.site_key === params.key);
   if (!site) notFound();
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-6">
-      <TopBar />
+    <>
       <div className="mb-4 flex items-center gap-3">
         <a
           href="/"
@@ -33,6 +29,6 @@ export default async function SiteDetail({
         </span>
       </div>
       <Dashboard fixedKey={site.site_key} />
-    </div>
+    </>
   );
 }

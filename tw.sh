@@ -98,10 +98,16 @@ do_start_local() {
     warn "已在运行（PID $(cat "$PID_FILE")），如需重启请用 ./tw.sh restart"
     exit 0
   fi
-  # 端口被非本服务进程占用 → 拒绝启动
+  # 端口被占：若非本脚本管理的进程（无 PID 文件），清理遗留的 next 进程后重试
   if curl -s -o /dev/null --max-time 2 "$HEALTH_URL"; then
-    warn "端口 ${PORT} 已有服务响应（可能上次未正常退出）。先执行 ./tw.sh stop 或换 PORT=xxxx ./tw.sh start"
-    exit 1
+    warn "端口 ${PORT} 被遗留进程占用（非本脚本启动），尝试清理…"
+    pkill -f "next start" 2>/dev/null || true
+    pkill -f "next-server" 2>/dev/null || true
+    sleep 2
+    if curl -s -o /dev/null --max-time 2 "$HEALTH_URL"; then
+      fail "端口 ${PORT} 仍被占用且无法清理。手动排查: lsof -i :${PORT}"
+    fi
+    ok "遗留进程已清理"
   fi
   mkdir -p "$RUN_DIR"
   : > "$LOG_FILE"
