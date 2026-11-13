@@ -34,7 +34,7 @@ export function ensureScheduler(): void {
             const r = await flushOnce();
             if (r !== "busy") {
               console.log(
-                `[flush] archived ${r.archived} events across ${r.days.length} site-days in ${r.durationMs}ms`
+                `[flush] archived ${r.archived}+${r.uArchived} events (keyed+universal) across ${r.days.length}+${r.uDays.length} site-days in ${r.durationMs}ms`
               );
             }
           } catch (e) {

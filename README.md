@@ -30,6 +30,7 @@ SQLite（历史归档，data/traffic.db）
 ## 功能
 
 - **采集端**：`<script>` 一行接入，sendBeacon + GIF 兜底，支持 SPA 路由，IP 只存哈希脱敏
+- **万能统计**（`/universal` 独立大盘）：免注册 key，`<script src="…/u.js">` 放进任何网站即按域名自动统计；两模块「域名访问 / IP 统计」+ 14 天趋势；**页面停留满 3 秒才计 PV/UV/IP**（快速跳转或秒关不计，防误报）
 - **首页总览大屏**：全部域名合计 PV/UV/IP 指标卡（昨日环比）、域名排名表（按今日 PV，含 30 天迷你趋势）、全站合计趋势（Redis+SQLite 拼接）
 - **站点详情子页**（`/site/{key}`）：单站指标卡、7/30/90 天趋势、热门页面/来源排行、实时访问动态（10s 轮询）
 - **站点管理**：添加/删除站点、一键复制接入代码
@@ -121,15 +122,20 @@ cp data/traffic.db backup/traffic-$(date +%F).db
 
 ```
 app/api/collect     # 采集上报（Redis 限流 + 热路径 pipeline 写入）
+app/api/u           # 万能统计采集（免 key，按域名自动注册，3 秒停留由 u.js 判定）
+app/api/universal   # 万能统计独立大盘数据
 app/api/overview    # 首页大屏：全站合计 + 域名排名 + 合计趋势
 app/api/stats       # 站点详情数据（Redis 窗口 + SQLite 历史混合查询）
 app/api/feed        # 实时访问流轻量轮询端点
 app/api/cron/flush  # 手动归档触发（X-Cron-Secret 保护）
 app/api/sites|auth|health
 app/site/[key]      # 单站点详情子页
+app/universal       # 万能统计独立大盘页
 components/Overview.tsx    # 首页总览大屏
+components/UniversalBoard.tsx  # 万能统计大盘（域名访问/IP 统计两模块）
 components/Dashboard.tsx   # 站点详情（fixedKey 子页模式）
-lib/redis.ts        # ioredis 单例 + key 设计 + RETENTION_DAYS
+lib/redis.ts        # ioredis 单例 + key 设计（K keyed / K_U 万能） + RETENTION_DAYS
+lib/universal.ts    # 万能统计热路径 + 大盘查询（tw:u:* 独立命名空间）
 lib/hot.ts          # 采集热路径（零 SQLite 写入）
 lib/flush.ts        # 归档任务（幂等）+ 日聚合重算
 lib/scheduler.ts    # 归档 cron（health 探活按需拉起，替代 instrumentation）

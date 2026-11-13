@@ -76,6 +76,35 @@ export function initSchema(): void {
       pv INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (site_id, date, referrer)
     );
+
+    -- ========== 万能统计（免 key，按域名自动注册，独立大盘） ==========
+
+    CREATE TABLE IF NOT EXISTS u_sites (
+      domain TEXT PRIMARY KEY,
+      first_seen INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS u_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      domain TEXT NOT NULL,
+      ts INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      path TEXT NOT NULL,
+      referrer TEXT NOT NULL DEFAULT '',
+      visitor_id TEXT NOT NULL,
+      ip_hash TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_u_events_domain_ts ON u_events(domain, ts);
+
+    -- 由 u_events 重算（lib/flush.ts recomputeUDay），口径同 daily_stats
+    CREATE TABLE IF NOT EXISTS u_daily (
+      domain TEXT NOT NULL,
+      date TEXT NOT NULL,
+      pv INTEGER NOT NULL DEFAULT 0,
+      uv INTEGER NOT NULL DEFAULT 0,
+      ip_count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (domain, date)
+    );
   `);
 }
 

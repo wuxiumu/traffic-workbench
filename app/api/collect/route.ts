@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordHot, rateLimited } from "@/lib/hot";
-import { clientIP, hashIP, normalizeReferrer } from "@/lib/track";
+import { clientIP, hashIP, normalizeReferrer, sanitizePath } from "@/lib/track";
 
 export const dynamic = "force-dynamic";
 
@@ -15,16 +15,6 @@ const GIF = Buffer.from(
   "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
   "base64"
 );
-
-function sanitizePath(p: string): string {
-  if (!p || typeof p !== "string") return "/";
-  try {
-    const u = new URL(p, "https://x.local");
-    return (u.pathname + u.search).slice(0, 512) || "/";
-  } catch {
-    return p.slice(0, 512);
-  }
-}
 
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS });

@@ -19,6 +19,9 @@ export default function TopBar() {
           <Link href="/" className="hover:text-white transition-colors">
             数据大盘
           </Link>
+          <Link href="/universal" className="hover:text-white transition-colors">
+            万能统计
+          </Link>
           <Link href="/sites" className="hover:text-white transition-colors">
             站点管理
           </Link>

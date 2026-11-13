@@ -23,6 +23,8 @@ export type FlushResult = {
   days: { siteKey: string; date: string; events: number }[];
   archived: number;
   cleaned: number;
+  uDays: { domain: string; date: string; events: number }[];
+  uArchived: number;
   durationMs: number;
 };
 
@@ -30,7 +32,9 @@ export async function flushToSQLite(): Promise<FlushResult> {
   const t0 = Date.now();
   const today = dateStr();
   const days: FlushResult["days"] = [];
+  const uDays: FlushResult["uDays"] = [];
   let archived = 0;
+  let uArchived = 0;
 
   // 1. 找待归档的事件键
   const targets: { key: string; siteKey: string; date: string }[] = [];
@@ -104,13 +108,17 @@ export async function flushToSQLite(): Promise<FlushResult> {
     await redis.del(t.key);
   }
 
+  // 3.5 万能统计归档（独立命名空间 tw:u:*，同样跳过今日）
+  uArchived = await flushUniversal(today, uDays);
+
   // 4. 清理超期归档
   const cutoff = dateStr(new Date(Date.now() - ARCHIVE_DAYS * 86400000));
   const cleaned = db
     .prepare("DELETE FROM events WHERE date < ?")
     .run(cutoff).changes;
+  db.prepare("DELETE FROM u_events WHERE date < ?").run(cutoff);
 
-  return { days, archived, cleaned, durationMs: Date.now() - t0 };
+  return { days, archived, cleaned, uDays, uArchived, durationMs: Date.now() - t0 };
 }
 
 /** 用 events 表重算某站点某日的三张聚合表 */
@@ -150,4 +158,71 @@ export async function flushOnce(): Promise<FlushResult | "busy"> {
   } finally {
     flushing = false;
   }
+}
+
+/** 用 u_events 表重算某域名某日的 u_daily（口径同 recomputeDay） */
+export function recomputeUDay(domain: string, date: string): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO u_daily (domain, date, pv, uv, ip_count)
+     SELECT domain, date,
+            COUNT(*)                                                 AS pv,
+            COUNT(DISTINCT visitor_id)                               AS uv,
+            COUNT(DISTINCT CASE WHEN ip_hash != '' THEN ip_hash END) AS ip_count
+     FROM u_events WHERE domain = ? AND date = ?
+     GROUP BY domain, date`
+  ).run(domain, date);
+}
+
+/** 万能统计归档：SCAN tw:u:events:* → u_events 入库 → 重算 u_daily → DEL */
+async function flushUniversal(
+  today: string,
+  uDays: FlushResult["uDays"]
+): Promise<number> {
+  const targets: { key: string; domain: string; date: string }[] = [];
+  let cursor = "0";
+  do {
+    const [next, keys] = await redis.scan(cursor, "MATCH", "tw:u:events:*", "COUNT", 200);
+    cursor = next;
+    for (const k of keys) {
+      const m = k.match(/^tw:u:events:([^:]+):(\d{4}-\d{2}-\d{2})$/);
+      if (!m) continue;
+      const [, domain, date] = m;
+      if (date >= today) continue;
+      targets.push({ key: k, domain, date });
+    }
+  } while (cursor !== "0");
+
+  const ins = db.prepare(
+    `INSERT INTO u_events (domain, ts, date, path, referrer, visitor_id, ip_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  );
+  let n = 0;
+  for (const t of targets) {
+    const raw = await redis.lrange(t.key, 0, -1);
+    if (raw.length === 0) {
+      await redis.del(t.key);
+      continue;
+    }
+    const tx = db.transaction(() => {
+      let c = 0;
+      for (const line of raw) {
+        try {
+          const e = JSON.parse(line) as {
+            t: number; p: string; r: string; v: string; i: string;
+          };
+          ins.run(t.domain, e.t, t.date, e.p, e.r ?? "", e.v, e.i ?? "");
+          c++;
+        } catch {
+          /* 跳过损坏行 */
+        }
+      }
+      recomputeUDay(t.domain, t.date);
+      return c;
+    });
+    const c = tx() as number;
+    n += c;
+    uDays.push({ domain: t.domain, date: t.date, events: c });
+    await redis.del(t.key);
+  }
+  return n;
 }

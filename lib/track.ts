@@ -105,6 +105,17 @@ export function classifyReferrer(refHost: string): string {
   return refHost;
 }
 
+/** 路径清洗与截断（collect / u 两个采集端点共用） */
+export function sanitizePath(p: string): string {
+  if (!p || typeof p !== "string") return "/";
+  try {
+    const u = new URL(p, "https://x.local");
+    return (u.pathname + u.search).slice(0, 512) || "/";
+  } catch {
+    return p.slice(0, 512);
+  }
+}
+
 /** ---------- IP 提取与脱敏 ---------- */
 
 /** 从请求头取客户端真实 IP（Nginx 反代后靠 X-Forwarded-For） */

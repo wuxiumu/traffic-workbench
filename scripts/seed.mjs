@@ -206,8 +206,98 @@ const redisToday = await redis.hgetall(`tw:stats:demo0001:${dateStr(0)}`);
 const sqliteHist = db
   .prepare("SELECT COUNT(DISTINCT date) d, SUM(pv) pv FROM daily_stats")
   .get();
+
+// ---- 万能统计演示数据（独立命名空间，3 个自动注册域名 × TOTAL_DAYS 天） ----
+db.exec(`
+  CREATE TABLE IF NOT EXISTS u_sites (
+    domain TEXT PRIMARY KEY, first_seen INTEGER NOT NULL);
+  CREATE TABLE IF NOT EXISTS u_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, domain TEXT NOT NULL, ts INTEGER NOT NULL,
+    date TEXT NOT NULL, path TEXT NOT NULL, referrer TEXT NOT NULL DEFAULT '',
+    visitor_id TEXT NOT NULL, ip_hash TEXT NOT NULL DEFAULT '');
+  CREATE INDEX IF NOT EXISTS idx_u_events_domain_ts ON u_events(domain, ts);
+  CREATE TABLE IF NOT EXISTS u_daily (
+    domain TEXT NOT NULL, date TEXT NOT NULL, pv INTEGER NOT NULL DEFAULT 0,
+    uv INTEGER NOT NULL DEFAULT 0, ip_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (domain, date));
+`);
+const uDemoDomains = [
+  { domain: "shop-sample.com", scale: 1.2 },
+  { domain: "news-sample.com", scale: 0.8 },
+  { domain: "tools-sample.com", scale: 1.0 },
+];
+{
+  const keep = uDemoDomains.map((d) => `'${d.domain}'`).join(",");
+  const stale = db.prepare(`DELETE FROM u_sites WHERE domain NOT IN (${keep})`).run();
+  if (stale.changes) console.log(`清理旧万能域名: ${stale.changes} 个`);
+}
+const insUSite = db.prepare("INSERT OR IGNORE INTO u_sites (domain, first_seen) VALUES (?, ?)");
+const insUEvent = db.prepare(
+  "INSERT INTO u_events (domain, ts, date, path, referrer, visitor_id, ip_hash) VALUES (?,?,?,?,?,?,?)"
+);
+for (const t of ["u_events", "u_daily"]) db.exec(`DELETE FROM ${t}`);
+{ // 清 Redis 万能命名空间
+  let cursor = "0";
+  do {
+    const [next, keys] = await redis.scan(cursor, "MATCH", "tw:u:*", "COUNT", 500);
+    cursor = next;
+    if (keys.length) await redis.del(...keys);
+  } while (cursor !== "0");
+}
+const UPAGES = ["/", "/list", "/detail/1", "/about"];
+let uRedis = 0, uSqlite = 0;
+for (const ud of uDemoDomains) {
+  insUSite.run(ud.domain, Date.now() - 20 * 86400000);
+  const TTL = (RETENTION_DAYS + 2) * 86400;
+  for (let d = TOTAL_DAYS - 1; d >= 0; d--) {
+    const date = dateStr(d);
+    const pv = Math.round(30 * ud.scale * (0.8 + Math.random() * 0.5));
+    const visitors = Math.max(1, Math.round(pv / 2.5));
+    const ips = Math.max(1, Math.round(visitors * 0.9));
+    const events = [];
+    const visSet = new Set(), ipSet = new Set();
+    for (let i = 0; i < pv; i++) {
+      const vid = `uv-${ud.domain}-${Math.floor(Math.random() * visitors)}`;
+      const ih = ipHash(`uip-${ud.domain}-${Math.floor(Math.random() * ips)}`);
+      events.push({
+        t: dayTs(d, Math.floor(Math.random() * 24)),
+        p: UPAGES[Math.floor(Math.random() * UPAGES.length)],
+        r: REFS[Math.floor(Math.random() * REFS.length)],
+        v: vid, i: ih,
+      });
+      visSet.add(vid); ipSet.add(ih);
+    }
+    if (d < RETENTION_DAYS) {
+      const pl = redis.pipeline();
+      for (const e of events) {
+        pl.rpush(`tw:u:events:${ud.domain}:${date}`, JSON.stringify(e));
+      }
+      for (const v of visSet) pl.sadd(`tw:u:vis:${ud.domain}:${date}`, v);
+      for (const h of ipSet) pl.sadd(`tw:u:ips:${ud.domain}:${date}`, h);
+      pl.hset(`tw:u:stats:${ud.domain}:${date}`, { pv: events.length, uv: visSet.size, ip: ipSet.size });
+      for (const pre of ["stats", "vis", "ips", "events"]) {
+        pl.expire(`tw:u:${pre}:${ud.domain}:${date}`, TTL);
+      }
+      await pl.exec();
+      uRedis++;
+    } else {
+      const tx = db.transaction(() => {
+        for (const e of events) insUEvent.run(ud.domain, e.t, date, e.p, e.r, e.v, e.i);
+        db.prepare(
+          `INSERT OR REPLACE INTO u_daily (domain, date, pv, uv, ip_count)
+           SELECT domain, date, COUNT(*) pv, COUNT(DISTINCT visitor_id) uv,
+                  COUNT(DISTINCT CASE WHEN ip_hash != '' THEN ip_hash END) ip_count
+           FROM u_events WHERE domain = ? AND date = ? GROUP BY domain, date`
+        ).run(ud.domain, date);
+      });
+      tx();
+      uSqlite++;
+    }
+  }
+}
+
 console.log(
-  `✅ seed 完成：Redis 窗口 ${redisDays} 站·天（RETENTION_DAYS=${RETENTION_DAYS}），SQLite 归档 ${sqliteDays} 站·天`
+  `✅ seed 完成：Redis 窗口 ${redisDays} 站·天（RETENTION_DAYS=${RETENTION_DAYS}），SQLite 归档 ${sqliteDays} 站·天；万能统计 ${uDemoDomains.length} 域名（窗口 ${uRedis}·天 / 归档 ${uSqlite}·天）`
 );
 console.log(`   Redis 今日 demo0001:`, JSON.stringify(redisToday));
 console.log(`   SQLite 历史段: ${sqliteHist.d} 个站·天, 共 ${sqliteHist.pv} PV`);

@@ -17,8 +17,9 @@
 1. **热路径禁写 SQLite**：`/api/collect` → `lib/hot.ts` 只写 Redis。SQLite 仅允许：站点缓存未命中时的一次读、归档任务写入。
 2. **每个日期单一数据源**：`date >= windowStart`（today − RETENTION_DAYS + 1）一律读 Redis，更早一律读 `daily_stats`。任何查询不得跨源重复计数（参考 `lib/stats.ts` 的 `windowStart()` 用法）。
 3. **归档必须幂等**：聚合表（daily_stats/page_daily/referrer_daily）只能 `INSERT OR REPLACE ... SELECT COUNT(...)` **由 events 重算**，禁止增量累加。今日 events 键永不归档（`date < today` 才处理，见 `lib/flush.ts`）。
-4. **Redis 键统一走 `K` 构造器**（`lib/redis.ts`）：新增键类型必须加进 `K` 并设置 `WINDOW_TTL`，flush 的 SCAN 模式与站点删除清理都依赖这套命名。
-5. **统计口径**：PV=事件数；UV=按 `visitor_id` 日去重；IP=按 `ip_hash` 日去重（SHA-256+盐，库中无明文）。来源名归一化：Redis 侧 `direct`、SQLite 侧 `''`，展示与聚合前必须过 `normRef()`。
+4. **Redis 键统一走 `K` / `K_U` 构造器**（`lib/redis.ts`）：新增键类型必须加进对应构造器并设置 `WINDOW_TTL`，flush 的 SCAN 模式与站点删除清理都依赖这套命名。**万能统计（`tw:u:*`）与 keyed 站点（`tw:*`）严格隔离**：keyed 用 `site_key`，万能用域名且 `u_sites` 自动注册；两边大盘/归档互不混算（flush 分别处理 `tw:events:*` 与 `tw:u:events:*`）。
+5. **统计口径**：PV=事件数；UV=按 `visitor_id` 日去重；IP=按 `ip_hash` 日去重（SHA-256+盐，库中无明文）。来源名归一化：Redis 侧 `direct`、SQLite 侧 `''`，展示与聚合前必须过 `normRef()`。万能统计的 3 秒停留判定在客户端 `public/u.js`（定时器 + pagehide 兜底），服务端不做时长校验。
+6. **默认大盘（`/`、`/site/{key}`）与万能大盘（`/universal`）互不影响**：给 keyed 站点加功能不要动 `lib/universal.ts`，反之亦然。
 
 ## 3. 常用命令
 
@@ -37,8 +38,9 @@ node scripts/verify.mjs   # 端到端冒烟：健康/登录/采集去重/总览�
 
 | 路径 | 职责 | 关键函数 |
 |---|---|---|
-| `lib/redis.ts` | ioredis 单例、`K` 键构造、`RETENTION_DAYS`/`WINDOW_TTL` | — |
+| `lib/redis.ts` | ioredis 单例、`K`（keyed）/`K_U`（万能）键构造、`RETENTION_DAYS`/`WINDOW_TTL` | — |
 | `lib/hot.ts` | 采集热路径（限流/站点缓存/pipeline 写入） | `recordHot` `rateLimited` |
+| `lib/universal.ts` | 万能统计：域名自动注册、热路径、独立大盘查询（`tw:u:*` 命名空间） | `recordUniversal` `universalBoard` |
 | `lib/flush.ts` | 归档：SCAN→入库→DEL→重算聚合；防并发锁 | `flushOnce` `recomputeDay` |
 | `lib/scheduler.ts` | cron 注册（探活按需拉起，幂等单例） | `ensureScheduler` |
 | `lib/stats.ts` | 混合查询 + 跨站总览 | `summary` `dailySeries` `details` `overview` `feed` |

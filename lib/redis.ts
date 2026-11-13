@@ -45,3 +45,15 @@ export const K = {
 };
 
 export { WINDOW_TTL };
+
+/**
+ * 万能统计独立命名空间（tw:u:*）：免 key、按域名自动注册，
+ * 与 keyed 站点（K）完全隔离；TTL 同样使用 WINDOW_TTL。
+ */
+export const K_U = {
+  site: (domain: string) => `tw:u:site:${domain}`, // 注册缓存
+  stats: (domain: string, date: string) => `tw:u:stats:${domain}:${date}`, // HASH {pv,uv,ip}
+  vis: (domain: string, date: string) => `tw:u:vis:${domain}:${date}`, // SET
+  ips: (domain: string, date: string) => `tw:u:ips:${domain}:${date}`, // SET
+  events: (domain: string, date: string) => `tw:u:events:${domain}:${date}`, // LIST
+};
