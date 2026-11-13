@@ -74,7 +74,8 @@ export default function UniversalBoard() {
   const [data, setData] = useState<UniversalResponse | null>(null);
   const [error, setError] = useState("");
   const [origin, setOrigin] = useState("");
-  const [tab, setTab] = useState<"domains" | "ips">("domains");
+  // 排序键：点击表头切换（降序）
+  const [sortKey, setSortKey] = useState<"pv" | "uv" | "ip" | "winPv" | "winIp">("pv");
 
   const load = useCallback(async () => {
     try {
@@ -102,8 +103,32 @@ export default function UniversalBoard() {
 
   const t = data.totals;
   const snippet = `<script async src="${origin}/u.js"></script>`;
+
+  // 合并总表：所有指标一列不落，按所选键降序（前端排序，30s 轮询数据刷新后仍保持）
+  const sorted = [...data.domains].sort(
+    (a, b) =>
+      ({
+        pv: b.today.pv - a.today.pv,
+        uv: b.today.uv - a.today.uv,
+        ip: b.today.ip - a.today.ip,
+        winPv: b.windowSum.pv - a.windowSum.pv,
+        winIp: b.windowSum.ip - a.windowSum.ip,
+      })[sortKey] ?? 0
+  );
   const maxPv = Math.max(...data.domains.map((d) => d.today.pv), 1);
   const maxIp = Math.max(...data.domains.map((d) => d.today.ip), 1);
+  const winDays = data.windowDays;
+
+  const th = (label: string, key: typeof sortKey, cls: string) => (
+    <th
+      onClick={() => setSortKey(key)}
+      className={`py-2 text-right font-medium cursor-pointer select-none hover:text-gray-300 transition-colors ${cls}`}
+      title="点击按该列排序"
+    >
+      {label}
+      <span className="text-blue-400 ml-0.5">{sortKey === key ? "↓" : ""}</span>
+    </th>
+  );
 
   return (
     <div className="space-y-6">
@@ -160,29 +185,19 @@ export default function UniversalBoard() {
         <TrendChart data={data.series} />
       </div>
 
-      {/* 两模块表 */}
+      {/* 域名总表（访问 + IP 合并，点击表头排序） */}
       <div className="rounded-xl bg-gray-900 border border-gray-800 p-5">
         <div className="flex items-center gap-2 mb-4">
-          <button
-            onClick={() => setTab("domains")}
-            className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
-              tab === "domains"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-900 border border-gray-800 text-gray-400 hover:text-white"
-            }`}
-          >
-            域名访问
-          </button>
-          <button
-            onClick={() => setTab("ips")}
-            className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
-              tab === "ips"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-900 border border-gray-800 text-gray-400 hover:text-white"
-            }`}
-          >
-            IP 统计
-          </button>
+          <h3 className="text-sm font-semibold text-gray-300">域名统计总表</h3>
+          <span className="text-xs text-gray-500">
+            点击表头按该列排序（当前：
+            {sortKey === "pv" && "今日 PV"}
+            {sortKey === "uv" && "今日 UV"}
+            {sortKey === "ip" && "今日 IP"}
+            {sortKey === "winPv" && `近 ${winDays} 天 PV`}
+            {sortKey === "winIp" && `近 ${winDays} 天 IP`}
+            ）
+          </span>
           <span className="text-xs text-gray-500 ml-auto">30s 自动刷新</span>
         </div>
 
@@ -190,21 +205,22 @@ export default function UniversalBoard() {
           <p className="text-sm text-gray-600 py-8 text-center">
             还没有域名接入 — 把上方代码放进任意网站，访问后这里会自动出现
           </p>
-        ) : tab === "domains" ? (
+        ) : (
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-gray-500 border-b border-gray-800">
                 <th className="py-2 pr-2 w-8 font-medium">#</th>
                 <th className="py-2 pr-2 font-medium">域名</th>
-                <th className="py-2 text-right font-medium w-24">今日 PV</th>
-                <th className="py-2 text-right font-medium w-16">UV</th>
-                <th className="py-2 text-right font-medium w-24">昨日 PV</th>
-                <th className="py-2 text-right font-medium w-20">环比</th>
-                <th className="py-2 text-right font-medium w-28">近 {data.windowDays} 天 PV</th>
+                {th("今日 PV", "pv", "w-24")}
+                {th("UV", "uv", "w-16")}
+                {th("今日 IP", "ip", "w-24")}
+                <th className="py-2 text-right font-medium w-20">PV 环比</th>
+                {th(`近 ${winDays} 天 PV`, "winPv", "w-28")}
+                {th(`近 ${winDays} 天 IP`, "winIp", "w-28")}
               </tr>
             </thead>
             <tbody>
-              {data.domains.map((d, i) => (
+              {sorted.map((d, i) => (
                 <tr key={d.domain} className="border-b border-gray-800/60 last:border-0">
                   <td className="py-3 pr-2 text-gray-500">{i + 1}</td>
                   <td className="py-3 pr-2">
@@ -218,56 +234,22 @@ export default function UniversalBoard() {
                   </td>
                   <td className="py-3 text-right text-gray-100">{d.today.pv.toLocaleString()}</td>
                   <td className="py-3 text-right text-gray-300">{d.today.uv.toLocaleString()}</td>
-                  <td className="py-3 text-right text-gray-400">{d.yesterday.pv.toLocaleString()}</td>
+                  <td className="py-3 text-right text-amber-300">
+                    <div className="relative">
+                      <div
+                        className="absolute inset-y-0 right-0 rounded bg-amber-500/10"
+                        style={{ width: `${(d.today.ip / maxIp) * 100}%` }}
+                      />
+                      <span className="relative">{d.today.ip.toLocaleString()}</span>
+                    </div>
+                  </td>
                   <td className="py-3 text-right">
                     <Delta now={d.today.pv} prev={d.yesterday.pv} />
                   </td>
-                  <td className="py-3 text-right text-gray-400">
-                    {d.windowSum.pv.toLocaleString()}
-                  </td>
+                  <td className="py-3 text-right text-gray-400">{d.windowSum.pv.toLocaleString()}</td>
+                  <td className="py-3 text-right text-gray-400">{d.windowSum.ip.toLocaleString()}</td>
                 </tr>
               ))}
-            </tbody>
-          </table>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-gray-500 border-b border-gray-800">
-                <th className="py-2 pr-2 w-8 font-medium">#</th>
-                <th className="py-2 pr-2 font-medium">域名</th>
-                <th className="py-2 text-right font-medium w-24">今日独立 IP</th>
-                <th className="py-2 text-right font-medium w-24">昨日独立 IP</th>
-                <th className="py-2 text-right font-medium w-20">环比</th>
-                <th className="py-2 text-right font-medium w-28">近 {data.windowDays} 天 IP 合计</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...data.domains]
-                .sort((a, b) => b.today.ip - a.today.ip)
-                .map((d, i) => (
-                  <tr key={d.domain} className="border-b border-gray-800/60 last:border-0">
-                    <td className="py-3 pr-2 text-gray-500">{i + 1}</td>
-                    <td className="py-3 pr-2">
-                      <div className="relative">
-                        <div
-                          className="absolute inset-y-0 left-0 rounded bg-amber-500/10"
-                          style={{ width: `${(d.today.ip / maxIp) * 100}%` }}
-                        />
-                        <span className="relative text-gray-100 font-medium">{d.domain}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 text-right text-amber-300 font-medium">
-                      {d.today.ip.toLocaleString()}
-                    </td>
-                    <td className="py-3 text-right text-gray-400">{d.yesterday.ip.toLocaleString()}</td>
-                    <td className="py-3 text-right">
-                      <Delta now={d.today.ip} prev={d.yesterday.ip} />
-                    </td>
-                    <td className="py-3 text-right text-gray-400">
-                      {d.windowSum.ip.toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
             </tbody>
           </table>
         )}
