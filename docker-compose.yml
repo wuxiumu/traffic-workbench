@@ -1,0 +1,64 @@
+services:
+  app:
+    build: .
+    container_name: traffic-workbench
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000" # 只绑本机，由 Nginx 反代对外
+    environment:
+      # 管理员密码：务必修改！
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      # IP 哈希盐值：修改后旧 IP 统计会变化
+      - IP_SALT=${IP_SALT:-please-change-me}
+      # 归档端点密钥（POST /api/cron/flush 需带 X-Cron-Secret）
+      - CRON_SECRET=${CRON_SECRET:-}
+      # Redis 热存
+      - REDIS_URL=redis://redis:6379
+      # Redis 实时窗口天数（可配置）
+      - RETENTION_DAYS=${RETENTION_DAYS:-7}
+      # 每日归档 cron 表达式（容器时区，默认每天 03:00）
+      - FLUSH_CRON=${FLUSH_CRON:-0 3 * * *}
+      # SQLite events 归档保留天数
+      - ARCHIVE_DAYS=${ARCHIVE_DAYS:-90}
+      - APP_TZ=${APP_TZ:-Asia/Shanghai}
+      - DATA_DIR=/app/data
+    volumes:
+      - ./data:/app/data # SQLite 归档持久化
+    depends_on:
+      redis:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    container_name: traffic-workbench-redis
+    restart: unless-stopped
+    # AOF 持久化 + 内存上限兜底（超出按 LRU 淘汰，详见 docs/analysis/04）
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - allkeys-lru
+    volumes:
+      - redis-data:/data # AOF 持久化
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # 不映射宿主端口：仅容器网络内可达
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+volumes:
+  redis-data:
