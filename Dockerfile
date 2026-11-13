@@ -6,6 +6,8 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+# standalone 输出（仅容器构建启用，见 next.config.mjs）
+ENV DOCKER_BUILD=1
 RUN npm run build
 
 # ---------- 运行阶段 ----------

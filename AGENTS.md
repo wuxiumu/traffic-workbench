@@ -24,15 +24,19 @@
 ## 3. 常用命令
 
 ```bash
-npm run dev          # 开发（需本地 Redis: redis-server --daemonize yes）
-npm run build        # 生产构建（含类型/Lint 检查，CI 语义）
-npm start            # 生产运行（CRON_SECRET=xxx npm start 可选注入）
-npm run seed         # 演示数据：3 域名×30 天（窗口内→Redis，更早→SQLite，可重复执行）
-npm run monitor      # 健康监控单次检查（WEBHOOK_URL 可选）
+./tw.sh start --dev       # 本地一键：环境检查（Node/依赖/Redis 自动拉起）+ dev 启动
+./tw.sh start             # 本地生产模式（缺构建产物自动 build）
+./tw.sh start --docker    # 服务器：docker compose 构建启动（.env 需先配置）
+./tw.sh stop | restart | status | "logs [-f] [行数]"   # 加 --docker 走容器
+./tw.sh seed              # 演示数据（3 域名×30 天 + 万能统计 3 域名）
 node scripts/verify.mjs   # 端到端冒烟：健康/登录/采集去重/总览一致性（对运行中服务执行）
+npm run build             # 生产构建（含类型/Lint 检查，提交前必须通过）
+npm run monitor           # 健康监控单次检查（WEBHOOK_URL 可选）
 ```
 
-本地 Redis 测试用 AOF：`redis-server --daemonize yes --save '' --appendonly yes --dir /tmp/tw-redis`
+本地 Redis 测试用 AOF：`redis-server --daemonize yes --save '' --appendonly yes --dir /tmp/tw-redis`（tw.sh 会自动拉起到 `.run/redis`）。
+
+> tw.sh 实现注意：脚本内**所有变量插值必须用 `${VAR}` 花括号**——字符串里有中文时，裸 `$VAR` 紧贴多字节字符在 C locale 下会被并入变量名导致 unbound variable（已踩坑）。
 
 ## 4. 代码地图
 

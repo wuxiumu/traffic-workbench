@@ -41,16 +41,31 @@ SQLite（历史归档，data/traffic.db）
 ## 快速开始（本地）
 
 ```bash
-# 1. Redis（本地开发；生产走 docker compose 自带）
-brew install redis && redis-server --daemonize yes
-
-# 2. 安装并启动
-npm install
-npm run seed        # 演示数据：近7天写 Redis，更早写 SQLite
-npm run build && npm start   # http://localhost:3000，默认密码 admin123
+./tw.sh start --dev   # 一键环境检查（Node/依赖/Redis 自动拉起）+ 开发模式启动
+./tw.sh stop | restart | status | logs -f
+./tw.sh seed          # 演示数据：3 域名×30 天 + 万能统计 3 域名
 ```
 
+或手动：`npm install && npm run seed && npm run build && npm start`（需本地 Redis：`redis-server --daemonize yes`）。默认密码 admin123。
+
 ## 服务器部署（4 核 8GiB）
+
+### 0. 推荐方式：管理脚本一键部署
+
+```bash
+cat > .env <<'EOF'
+ADMIN_PASSWORD=你的强密码
+IP_SALT=一串随机字符串
+CRON_SECRET=触发归档用的密钥
+EOF
+
+./tw.sh start --docker     # 环境检查 + docker compose 构建启动 + 健康等待
+./tw.sh status --docker    # 容器状态 + 健康探针
+./tw.sh logs -f --docker   # 跟踪日志
+./tw.sh stop --docker      # 停止（docker compose down）
+```
+
+本地无 Docker 时 `--docker` 会给出明确安装提示；不带 `--docker` 则走本地进程模式（服务器上装了 Node + Redis 也可以直接 `./tw.sh start` 用进程方式部署）。
 
 ```bash
 cd traffic-workbench
