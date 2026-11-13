@@ -30,13 +30,14 @@ const login = await fetch(`${BASE}/api/auth/login`, {
 ok("登录成功", login.status === 200);
 const cookie = login.headers.get("set-cookie")?.split(";")[0] ?? "";
 
-// 3. 采集去重：同 vid ×3 → pv+3, uv+1, ip+1
+// 3. 采集去重：新访客 ×3 → pv+3, uv+1（vid 含时间戳，保证脚本可重复运行）
+const vid = `verify-${Date.now()}`;
 const before = await fetch(`${BASE}/api/stats?key=${KEY}&days=1`, { headers: { cookie } }).then((r) => r.json());
 for (let i = 0; i < 3; i++) {
   await fetch(`${BASE}/api/collect`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ key: KEY, path: `/verify-${Date.now()}`, ref: "", vid: "verify-agent", domain: "verify.test" }),
+    body: JSON.stringify({ key: KEY, path: `/verify-${Date.now()}`, ref: "", vid, domain: "verify.test" }),
   });
 }
 const after = await fetch(`${BASE}/api/stats?key=${KEY}&days=1`, { headers: { cookie } }).then((r) => r.json());
